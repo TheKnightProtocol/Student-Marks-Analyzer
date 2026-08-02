@@ -217,43 +217,80 @@ def generate_sample_data():
     return df, subjects
 
 def analyze_data(df, subjects):
-    """Perform comprehensive data analysis"""
+    """Perform comprehensive data analysis with error handling"""
+    
+    # Ensure Percentage column exists
+    if 'Percentage' not in df.columns:
+        if 'Total' in df.columns and subjects:
+            df['Percentage'] = (df['Total'] / (len(subjects) * 100) * 100).round(2)
+        else:
+            df['Percentage'] = 0
+    
+    # Calculate pass percentage with safety check
+    pass_percentage = 0
+    if len(df) > 0:
+        pass_count = df[df['Percentage'] >= 40].shape[0]
+        pass_percentage = (pass_count / len(df) * 100).round(2)
+    
+    # Ensure all required keys exist
+    subject_averages = {subj: df[subj].mean().round(2) if subj in df.columns else 0 for subj in subjects}
+    
+    # Get top 3 safely
+    top_3 = []
+    if len(df) > 0:
+        top_3 = df.head(3)[['Name', 'Total', 'Percentage', 'Grade']].to_dict('records')
+    
+    # Get subject toppers safely
+    subject_toppers = {}
+    for subj in subjects:
+        if subj in df.columns and len(df) > 0:
+            subject_toppers[subj] = df.loc[df[subj].idxmax(), 'Name']
+        else:
+            subject_toppers[subj] = 'N/A'
+    
+    # Get subject highest safely
+    subject_highest = {}
+    for subj in subjects:
+        if subj in df.columns:
+            subject_highest[subj] = df[subj].max()
+        else:
+            subject_highest[subj] = 0
+    
+    # Get weakest and strongest subjects
+    weakest_subject = subjects[0] if subjects else 'None'
+    strongest_subject = subjects[0] if subjects else 'None'
+    if subject_averages:
+        weakest_subject = min(subject_averages, key=subject_averages.get)
+        strongest_subject = max(subject_averages, key=subject_averages.get)
     
     analysis = {
         'total_students': len(df),
         'subjects': subjects,
-        'class_average': df['Average'].mean().round(2),
-        'class_highest': df['Total'].max(),
-        'class_lowest': df['Total'].min(),
-        'pass_percentage': (df[df['Percentage'] >= 40].shape[0] / len(df) * 100).round(2),
+        'class_average': df['Average'].mean().round(2) if 'Average' in df.columns and len(df) > 0 else 0,
+        'class_highest': df['Total'].max() if 'Total' in df.columns and len(df) > 0 else 0,
+        'class_lowest': df['Total'].min() if 'Total' in df.columns and len(df) > 0 else 0,
+        'pass_percentage': pass_percentage,
         
         # Overall topper
-        'overall_topper': df.iloc[0]['Name'],
-        'topper_marks': df.iloc[0]['Total'],
-        'topper_percentage': df.iloc[0]['Percentage'],
+        'overall_topper': df.iloc[0]['Name'] if len(df) > 0 else 'N/A',
+        'topper_marks': df.iloc[0]['Total'] if len(df) > 0 else 0,
+        'topper_percentage': df.iloc[0]['Percentage'] if len(df) > 0 else 0,
         
         # Top 3
-        'top_3': df.head(3)[['Name', 'Total', 'Percentage', 'Grade']].to_dict('records'),
+        'top_3': top_3,
         
         # Subject-wise toppers
-        'subject_toppers': {subj: df.loc[df[subj].idxmax(), 'Name'] for subj in subjects},
-        'subject_highest': {subj: df[subj].max() for subj in subjects},
-        'subject_average': {subj: df[subj].mean().round(2) for subj in subjects},
+        'subject_toppers': subject_toppers,
+        'subject_highest': subject_highest,
+        'subject_average': subject_averages,
         
         # Grade distribution
-        'grade_distribution': df['Grade'].value_counts().to_dict(),
+        'grade_distribution': df['Grade'].value_counts().to_dict() if 'Grade' in df.columns else {},
         
-        # Weakest subject
-        'weakest_subject': min(analysis if 'subject_average' in locals() else {'Mathematics': 65}, 
-                              key=lambda x: analysis.get('subject_average', {}).get(x, 0)),
+        # Weakest and strongest subjects
+        'weakest_subject': weakest_subject,
+        'strongest_subject': strongest_subject,
     }
-    
-    # Update weakest subject
-    if 'subject_average' in analysis:
-        analysis['weakest_subject'] = min(analysis['subject_average'], 
-                                         key=analysis['subject_average'].get)
-        analysis['strongest_subject'] = max(analysis['subject_average'], 
-                                           key=analysis['subject_average'].get)
     
     return analysis
 
@@ -268,12 +305,13 @@ def create_subject_comparison(df, subjects):
     colors = ['#6366f1', '#8b5cf6', '#a78bfa', '#c4b5fd', '#818cf8', '#6366f1']
     
     for i, subject in enumerate(subjects):
-        fig.add_trace(go.Box(
-            y=df[subject],
-            name=subject,
-            marker_color=colors[i % len(colors)],
-            boxmean='sd'
-        ))
+        if subject in df.columns:
+            fig.add_trace(go.Box(
+                y=df[subject],
+                name=subject,
+                marker_color=colors[i % len(colors)],
+                boxmean='sd'
+            ))
     
     fig.update_layout(
         title=dict(text='📊 Subject-wise Performance Distribution', font=dict(color='white', size=20), x=0.5),
@@ -373,6 +411,15 @@ def create_radar_chart(df, subjects, student_name):
 
 def create_grade_distribution(df):
     """Create grade distribution pie chart"""
+    if 'Grade' not in df.columns or df.empty:
+        fig = go.Figure()
+        fig.update_layout(
+            title=dict(text='📈 Grade Distribution', font=dict(color='white', size=20), x=0.5),
+            paper_bgcolor='rgba(0,0,0,0)',
+            height=450
+        )
+        return fig
+    
     grade_counts = df['Grade'].value_counts()
     
     colors = {
@@ -401,6 +448,15 @@ def create_grade_distribution(df):
 
 def create_rank_chart(df):
     """Create ranking bar chart"""
+    if df.empty:
+        fig = go.Figure()
+        fig.update_layout(
+            title=dict(text='🏆 Top 10 Students Ranking', font=dict(color='white', size=20), x=0.5),
+            paper_bgcolor='rgba(0,0,0,0)',
+            height=450
+        )
+        return fig
+    
     top_10 = df.head(10).sort_values('Total')
     
     fig = go.Figure(go.Bar(
