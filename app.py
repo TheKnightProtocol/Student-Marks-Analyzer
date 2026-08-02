@@ -217,7 +217,10 @@ def generate_sample_data():
     return df, subjects
 
 def analyze_data(df, subjects):
-    """Perform comprehensive data analysis with error handling"""
+    """Perform comprehensive data analysis with proper error handling"""
+    
+    # Create a copy to avoid modifying original
+    df = df.copy()
     
     # Ensure Percentage column exists
     if 'Percentage' not in df.columns:
@@ -226,35 +229,69 @@ def analyze_data(df, subjects):
         else:
             df['Percentage'] = 0
     
+    # Ensure Grade column exists
+    if 'Grade' not in df.columns:
+        def get_grade(pct):
+            if pct >= 90: return 'A+'
+            elif pct >= 80: return 'A'
+            elif pct >= 70: return 'B+'
+            elif pct >= 60: return 'B'
+            elif pct >= 50: return 'C+'
+            elif pct >= 40: return 'C'
+            else: return 'F'
+        df['Grade'] = df['Percentage'].apply(get_grade)
+    
     # Calculate pass percentage with safety check
-    pass_percentage = 0
+    pass_percentage = 0.0
     if len(df) > 0:
         pass_count = df[df['Percentage'] >= 40].shape[0]
-        pass_percentage = (pass_count / len(df) * 100).round(2)
+        pass_percentage = round((pass_count / len(df) * 100), 2)
     
-    # Ensure all required keys exist
-    subject_averages = {subj: df[subj].mean().round(2) if subj in df.columns else 0 for subj in subjects}
+    # Calculate class average safely
+    class_average = 0.0
+    if 'Average' in df.columns and len(df) > 0:
+        class_average = round(df['Average'].mean(), 2)
+    
+    # Calculate class highest and lowest
+    class_highest = 0
+    class_lowest = 0
+    if 'Total' in df.columns and len(df) > 0:
+        class_highest = int(df['Total'].max())
+        class_lowest = int(df['Total'].min())
+    
+    # Get overall topper
+    overall_topper = 'N/A'
+    topper_marks = 0
+    topper_percentage = 0.0
+    if len(df) > 0:
+        overall_topper = df.iloc[0]['Name']
+        topper_marks = int(df.iloc[0]['Total']) if 'Total' in df.columns else 0
+        topper_percentage = float(df.iloc[0]['Percentage']) if 'Percentage' in df.columns else 0.0
     
     # Get top 3 safely
     top_3 = []
     if len(df) > 0:
-        top_3 = df.head(3)[['Name', 'Total', 'Percentage', 'Grade']].to_dict('records')
+        cols = ['Name', 'Total', 'Percentage', 'Grade']
+        available_cols = [col for col in cols if col in df.columns]
+        top_3 = df.head(3)[available_cols].to_dict('records')
     
-    # Get subject toppers safely
+    # Get subject-wise toppers safely
     subject_toppers = {}
-    for subj in subjects:
-        if subj in df.columns and len(df) > 0:
-            subject_toppers[subj] = df.loc[df[subj].idxmax(), 'Name']
-        else:
-            subject_toppers[subj] = 'N/A'
-    
-    # Get subject highest safely
     subject_highest = {}
+    subject_averages = {}
+    
     for subj in subjects:
         if subj in df.columns:
-            subject_highest[subj] = df[subj].max()
+            subject_averages[subj] = round(df[subj].mean(), 2)
+            subject_highest[subj] = int(df[subj].max())
+            if len(df) > 0:
+                subject_toppers[subj] = df.loc[df[subj].idxmax(), 'Name']
+            else:
+                subject_toppers[subj] = 'N/A'
         else:
+            subject_averages[subj] = 0
             subject_highest[subj] = 0
+            subject_toppers[subj] = 'N/A'
     
     # Get weakest and strongest subjects
     weakest_subject = subjects[0] if subjects else 'None'
@@ -263,31 +300,29 @@ def analyze_data(df, subjects):
         weakest_subject = min(subject_averages, key=subject_averages.get)
         strongest_subject = max(subject_averages, key=subject_averages.get)
     
+    # Get grade distribution
+    grade_distribution = {}
+    if 'Grade' in df.columns:
+        grade_distribution = df['Grade'].value_counts().to_dict()
+    
+    # Calculate total students
+    total_students = len(df)
+    
     analysis = {
-        'total_students': len(df),
+        'total_students': total_students,
         'subjects': subjects,
-        'class_average': df['Average'].mean().round(2) if 'Average' in df.columns and len(df) > 0 else 0,
-        'class_highest': df['Total'].max() if 'Total' in df.columns and len(df) > 0 else 0,
-        'class_lowest': df['Total'].min() if 'Total' in df.columns and len(df) > 0 else 0,
+        'class_average': class_average,
+        'class_highest': class_highest,
+        'class_lowest': class_lowest,
         'pass_percentage': pass_percentage,
-        
-        # Overall topper
-        'overall_topper': df.iloc[0]['Name'] if len(df) > 0 else 'N/A',
-        'topper_marks': df.iloc[0]['Total'] if len(df) > 0 else 0,
-        'topper_percentage': df.iloc[0]['Percentage'] if len(df) > 0 else 0,
-        
-        # Top 3
+        'overall_topper': overall_topper,
+        'topper_marks': topper_marks,
+        'topper_percentage': topper_percentage,
         'top_3': top_3,
-        
-        # Subject-wise toppers
         'subject_toppers': subject_toppers,
         'subject_highest': subject_highest,
         'subject_average': subject_averages,
-        
-        # Grade distribution
-        'grade_distribution': df['Grade'].value_counts().to_dict() if 'Grade' in df.columns else {},
-        
-        # Weakest and strongest subjects
+        'grade_distribution': grade_distribution,
         'weakest_subject': weakest_subject,
         'strongest_subject': strongest_subject,
     }
@@ -305,7 +340,7 @@ def create_subject_comparison(df, subjects):
     colors = ['#6366f1', '#8b5cf6', '#a78bfa', '#c4b5fd', '#818cf8', '#6366f1']
     
     for i, subject in enumerate(subjects):
-        if subject in df.columns:
+        if subject in df.columns and len(df[subject]) > 0:
             fig.add_trace(go.Box(
                 y=df[subject],
                 name=subject,
@@ -331,11 +366,21 @@ def create_subject_comparison(df, subjects):
 def create_student_performance(df, subjects):
     """Create student performance heatmap"""
     # Prepare data for heatmap
-    heatmap_data = df.set_index('Name')[subjects]
+    available_subjects = [s for s in subjects if s in df.columns]
+    if not available_subjects:
+        fig = go.Figure()
+        fig.update_layout(
+            title=dict(text='🔥 Student Performance Heatmap', font=dict(color='white', size=20), x=0.5),
+            paper_bgcolor='rgba(0,0,0,0)',
+            height=600
+        )
+        return fig
+    
+    heatmap_data = df.set_index('Name')[available_subjects]
     
     fig = go.Figure(data=go.Heatmap(
         z=heatmap_data.values,
-        x=subjects,
+        x=available_subjects,
         y=heatmap_data.index,
         colorscale='Viridis',
         text=heatmap_data.values,
@@ -364,11 +409,15 @@ def create_radar_chart(df, subjects, student_name):
     if student_data.empty:
         return None
     
+    available_subjects = [s for s in subjects if s in df.columns]
+    if not available_subjects:
+        return None
+    
     fig = go.Figure()
     
     fig.add_trace(go.Scatterpolar(
-        r=student_data[subjects].values[0],
-        theta=subjects,
+        r=student_data[available_subjects].values[0],
+        theta=available_subjects,
         fill='toself',
         name=student_name,
         line_color='#818cf8',
@@ -376,10 +425,10 @@ def create_radar_chart(df, subjects, student_name):
     ))
     
     # Add class average
-    avg_values = df[subjects].mean().values
+    avg_values = df[available_subjects].mean().values
     fig.add_trace(go.Scatterpolar(
         r=avg_values,
-        theta=subjects,
+        theta=available_subjects,
         fill='toself',
         name='Class Average',
         line_color='#fbbf24',
@@ -422,6 +471,15 @@ def create_grade_distribution(df):
     
     grade_counts = df['Grade'].value_counts()
     
+    if grade_counts.empty:
+        fig = go.Figure()
+        fig.update_layout(
+            title=dict(text='📈 Grade Distribution', font=dict(color='white', size=20), x=0.5),
+            paper_bgcolor='rgba(0,0,0,0)',
+            height=450
+        )
+        return fig
+    
     colors = {
         'A+': '#10b981', 'A': '#34d399', 'B+': '#fbbf24',
         'B': '#f59e0b', 'C+': '#f97316', 'C': '#ef4444', 'F': '#dc2626'
@@ -448,7 +506,7 @@ def create_grade_distribution(df):
 
 def create_rank_chart(df):
     """Create ranking bar chart"""
-    if df.empty:
+    if df.empty or 'Total' not in df.columns:
         fig = go.Figure()
         fig.update_layout(
             title=dict(text='🏆 Top 10 Students Ranking', font=dict(color='white', size=20), x=0.5),
@@ -464,10 +522,10 @@ def create_rank_chart(df):
         y=top_10['Name'],
         orientation='h',
         marker=dict(
-            color=top_10['Percentage'],
+            color=top_10['Percentage'] if 'Percentage' in top_10.columns else top_10['Total'],
             colorscale='Viridis',
             showscale=True,
-            colorbar=dict(title='Percentage', tickfont=dict(color='white'))
+            colorbar=dict(title='Percentage' if 'Percentage' in top_10.columns else 'Marks', tickfont=dict(color='white'))
         ),
         text=top_10['Total'],
         textposition='outside',
@@ -531,34 +589,36 @@ def main():
         if uploaded_file:
             try:
                 new_df = pd.read_csv(uploaded_file)
-                # Identify subject columns
-                name_col = new_df.columns[0]
-                subject_cols = [col for col in new_df.columns[1:] if new_df[col].dtype in ['int64', 'float64']]
+                # Identify subject columns (numeric columns except first column)
+                subject_cols = [col for col in new_df.columns[1:] if pd.api.types.is_numeric_dtype(new_df[col])]
                 
-                new_df['Total'] = new_df[subject_cols].sum(axis=1)
-                new_df['Average'] = new_df[subject_cols].mean(axis=1).round(2)
-                new_df['Percentage'] = (new_df['Total'] / (len(subject_cols) * 100) * 100).round(2)
-                
-                def get_grade(pct):
-                    if pct >= 90: return 'A+'
-                    elif pct >= 80: return 'A'
-                    elif pct >= 70: return 'B+'
-                    elif pct >= 60: return 'B'
-                    elif pct >= 50: return 'C+'
-                    elif pct >= 40: return 'C'
-                    else: return 'F'
-                
-                new_df['Grade'] = new_df['Percentage'].apply(get_grade)
-                new_df['Rank'] = new_df['Total'].rank(ascending=False, method='min').astype(int)
-                new_df = new_df.sort_values('Total', ascending=False).reset_index(drop=True)
-                
-                st.session_state.df = new_df
-                st.session_state.subjects = subject_cols
-                st.session_state.analysis = analyze_data(new_df, subject_cols)
-                st.success(f"✅ Loaded {len(new_df)} students")
-                st.rerun()
+                if not subject_cols:
+                    st.error("No numeric subject columns found in the uploaded file.")
+                else:
+                    new_df['Total'] = new_df[subject_cols].sum(axis=1)
+                    new_df['Average'] = new_df[subject_cols].mean(axis=1).round(2)
+                    new_df['Percentage'] = (new_df['Total'] / (len(subject_cols) * 100) * 100).round(2)
+                    
+                    def get_grade(pct):
+                        if pct >= 90: return 'A+'
+                        elif pct >= 80: return 'A'
+                        elif pct >= 70: return 'B+'
+                        elif pct >= 60: return 'B'
+                        elif pct >= 50: return 'C+'
+                        elif pct >= 40: return 'C'
+                        else: return 'F'
+                    
+                    new_df['Grade'] = new_df['Percentage'].apply(get_grade)
+                    new_df['Rank'] = new_df['Total'].rank(ascending=False, method='min').astype(int)
+                    new_df = new_df.sort_values('Total', ascending=False).reset_index(drop=True)
+                    
+                    st.session_state.df = new_df
+                    st.session_state.subjects = subject_cols
+                    st.session_state.analysis = analyze_data(new_df, subject_cols)
+                    st.success(f"✅ Loaded {len(new_df)} students with {len(subject_cols)} subjects")
+                    st.rerun()
             except Exception as e:
-                st.error(f"Error: {e}")
+                st.error(f"Error loading file: {e}")
         
         if st.button("🔄 Reset to Sample Data", use_container_width=True):
             st.session_state.df, st.session_state.subjects = generate_sample_data()
@@ -569,7 +629,8 @@ def main():
         
         # Filters
         st.markdown("### 🔍 Filters")
-        selected_subject = st.selectbox("Select Subject", ['All'] + subjects)
+        if subjects:
+            selected_subject = st.selectbox("Select Subject", ['All'] + subjects)
         
         grade_filter = st.multiselect(
             "Filter by Grade",
@@ -578,8 +639,12 @@ def main():
         )
         
         # Apply filters
-        filtered_df = df[df['Grade'].isin(grade_filter)]
-        if selected_subject != 'All':
+        if 'Grade' in df.columns:
+            filtered_df = df[df['Grade'].isin(grade_filter)]
+        else:
+            filtered_df = df
+        
+        if subjects and selected_subject != 'All' and selected_subject in df.columns:
             filtered_df = filtered_df.nlargest(10, selected_subject)
         
         st.markdown("---")
@@ -597,18 +662,21 @@ def main():
         )
         
         # Excel export
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, sheet_name='Student Marks', index=False)
-        excel_data = output.getvalue()
-        
-        st.download_button(
-            "📊 Download Excel",
-            excel_data,
-            "student_marks.xlsx",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
-        )
+        try:
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df.to_excel(writer, sheet_name='Student Marks', index=False)
+            excel_data = output.getvalue()
+            
+            st.download_button(
+                "📊 Download Excel",
+                excel_data,
+                "student_marks.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+        except Exception as e:
+            st.warning("Excel export not available. Please install openpyxl.")
     
     # Main content
     st.markdown("""
@@ -627,13 +695,13 @@ def main():
     col1, col2, col3, col4, col5 = st.columns(5)
     
     with col1:
-        st.metric("👨‍🎓 Total Students", analysis['total_students'])
+        st.metric("👨‍🎓 Total Students", analysis.get('total_students', 0))
     with col2:
-        st.metric("📊 Class Average", f"{analysis['class_average']:.1f}%")
+        st.metric("📊 Class Average", f"{analysis.get('class_average', 0):.1f}%")
     with col3:
-        st.metric("🏆 Highest", f"{analysis['class_highest']}")
+        st.metric("🏆 Highest", f"{analysis.get('class_highest', 0)}")
     with col4:
-        st.metric("✅ Pass Rate", f"{analysis['pass_percentage']}%")
+        st.metric("✅ Pass Rate", f"{analysis.get('pass_percentage', 0)}%")
     with col5:
         st.metric("📈 Subjects", len(subjects))
     
@@ -658,12 +726,12 @@ def main():
             st.markdown("### 🏆 Overall Topper")
             st.markdown(f"""
             <div style="text-align:center; padding:20px;">
-                <h2 style="color:#fbbf24; margin:0;">🥇 {analysis['overall_topper']}</h2>
+                <h2 style="color:#fbbf24; margin:0;">🥇 {analysis.get('overall_topper', 'N/A')}</h2>
                 <p style="color:#a5b4fc; font-size:1.2rem; margin:10px 0;">
-                    {analysis['topper_marks']} / {len(subjects) * 100}
+                    {analysis.get('topper_marks', 0)} / {len(subjects) * 100 if subjects else 0}
                 </p>
                 <p style="color:#10b981; font-size:1.5rem; font-weight:700;">
-                    {analysis['topper_percentage']}%
+                    {analysis.get('topper_percentage', 0)}%
                 </p>
                 <span class="topper-badge rank-1">Rank #1</span>
             </div>
@@ -676,20 +744,22 @@ def main():
             st.markdown('</div>', unsafe_allow_html=True)
         
         # Subject-wise toppers
-        st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-        st.markdown("### 🎯 Subject-wise Toppers")
-        
-        cols = st.columns(len(subjects))
-        for i, subject in enumerate(subjects):
-            with cols[i]:
-                st.markdown(f"""
-                <div style="text-align:center; padding:15px; background:rgba(99,102,241,0.1); border-radius:12px;">
-                    <p style="color:#818cf8; font-weight:600; margin:0;">{subject}</p>
-                    <p style="color:#fbbf24; font-size:1.1rem; margin:5px 0;">🥇 {analysis['subject_toppers'].get(subject, 'N/A')}</p>
-                    <p style="color:#10b981; font-weight:700;">{analysis['subject_highest'].get(subject, 0)}</p>
-                </div>
-                """, unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+        if subjects:
+            st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+            st.markdown("### 🎯 Subject-wise Toppers")
+            
+            cols = st.columns(min(len(subjects), 6))
+            for i, subject in enumerate(subjects):
+                if i < len(cols):
+                    with cols[i]:
+                        st.markdown(f"""
+                        <div style="text-align:center; padding:15px; background:rgba(99,102,241,0.1); border-radius:12px;">
+                            <p style="color:#818cf8; font-weight:600; margin:0;">{subject}</p>
+                            <p style="color:#fbbf24; font-size:1.1rem; margin:5px 0;">🥇 {analysis['subject_toppers'].get(subject, 'N/A')}</p>
+                            <p style="color:#10b981; font-weight:700;">{analysis['subject_highest'].get(subject, 0)}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
     
     with tab2:
         st.markdown('<div class="glass-card">', unsafe_allow_html=True)
@@ -705,18 +775,19 @@ def main():
         medals = ['🥇', '🥈', '🥉']
         rank_classes = ['rank-1', 'rank-2', 'rank-3']
         
+        top_3 = analysis.get('top_3', [])
         for i, (col, medal, rank_class) in enumerate(zip([col2, col1, col3], medals, rank_classes)):
-            if i < len(analysis['top_3']):
-                student = analysis['top_3'][i]
+            if i < len(top_3):
+                student = top_3[i]
                 with col:
                     st.markdown(f"""
                     <div style="text-align:center; padding:20px; background:rgba(30,27,75,0.8); border-radius:15px; border:2px solid rgba(99,102,241,0.3);">
                         <h2 style="margin:0;">{medal}</h2>
-                        <h3 style="color:#fbbf24; margin:10px 0;">{student['Name']}</h3>
-                        <p style="color:#a5b4fc;">{student['Total']} marks</p>
-                        <p style="color:#10b981; font-weight:700;">{student['Percentage']}%</p>
+                        <h3 style="color:#fbbf24; margin:10px 0;">{student.get('Name', 'N/A')}</h3>
+                        <p style="color:#a5b4fc;">{student.get('Total', 0)} marks</p>
+                        <p style="color:#10b981; font-weight:700;">{student.get('Percentage', 0)}%</p>
                         <span class="topper-badge {rank_class}">Rank #{i+1}</span>
-                        <p style="color:#a78bfa; margin-top:10px;">Grade: {student['Grade']}</p>
+                        <p style="color:#a78bfa; margin-top:10px;">Grade: {student.get('Grade', 'N/A')}</p>
                     </div>
                     """, unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
@@ -728,16 +799,19 @@ def main():
             st.markdown('<div class="glass-card">', unsafe_allow_html=True)
             st.markdown("### 📊 Subject Averages")
             
-            avg_data = pd.DataFrame({
-                'Subject': subjects,
-                'Average': [analysis['subject_average'][s] for s in subjects]
-            })
-            
-            fig = px.bar(avg_data, x='Subject', y='Average', color='Average',
-                        color_continuous_scale='Viridis', title='Subject-wise Average Marks')
-            fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                            font=dict(color='white'), height=400)
-            st.plotly_chart(fig, use_container_width=True)
+            if subjects and analysis.get('subject_average'):
+                avg_data = pd.DataFrame({
+                    'Subject': subjects,
+                    'Average': [analysis['subject_average'].get(s, 0) for s in subjects]
+                })
+                
+                fig = px.bar(avg_data, x='Subject', y='Average', color='Average',
+                            color_continuous_scale='Viridis', title='Subject-wise Average Marks')
+                fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                                font=dict(color='white'), height=400)
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No subject data available")
             st.markdown('</div>', unsafe_allow_html=True)
         
         with col2:
@@ -755,8 +829,8 @@ def main():
             st.markdown(f"""
             <div style="padding:15px; background:rgba(99,102,241,0.1); border-radius:10px;">
                 <h4 style="color:#818cf8;">📈 Strongest Subject</h4>
-                <p style="color:#10b981; font-size:1.2rem; font-weight:700;">{analysis['strongest_subject']}</p>
-                <p style="color:#a5b4fc;">Avg: {analysis['subject_average'][analysis['strongest_subject']]}</p>
+                <p style="color:#10b981; font-size:1.2rem; font-weight:700;">{analysis.get('strongest_subject', 'N/A')}</p>
+                <p style="color:#a5b4fc;">Avg: {analysis['subject_average'].get(analysis.get('strongest_subject', ''), 0) if analysis.get('strongest_subject') else 0}</p>
             </div>
             """, unsafe_allow_html=True)
         
@@ -764,8 +838,8 @@ def main():
             st.markdown(f"""
             <div style="padding:15px; background:rgba(239,68,68,0.1); border-radius:10px;">
                 <h4 style="color:#ef4444;">📉 Weakest Subject</h4>
-                <p style="color:#fbbf24; font-size:1.2rem; font-weight:700;">{analysis['weakest_subject']}</p>
-                <p style="color:#a5b4fc;">Avg: {analysis['subject_average'][analysis['weakest_subject']]}</p>
+                <p style="color:#fbbf24; font-size:1.2rem; font-weight:700;">{analysis.get('weakest_subject', 'N/A')}</p>
+                <p style="color:#a5b4fc;">Avg: {analysis['subject_average'].get(analysis.get('weakest_subject', ''), 0) if analysis.get('weakest_subject') else 0}</p>
             </div>
             """, unsafe_allow_html=True)
         
@@ -773,8 +847,8 @@ def main():
             st.markdown(f"""
             <div style="padding:15px; background:rgba(16,185,129,0.1); border-radius:10px;">
                 <h4 style="color:#10b981;">✅ Class Performance</h4>
-                <p style="color:#a78bfa; font-size:1.2rem; font-weight:700;">{analysis['pass_percentage']}% Pass Rate</p>
-                <p style="color:#a5b4fc;">{analysis['total_students']} Students</p>
+                <p style="color:#a78bfa; font-size:1.2rem; font-weight:700;">{analysis.get('pass_percentage', 0)}% Pass Rate</p>
+                <p style="color:#a5b4fc;">{analysis.get('total_students', 0)} Students</p>
             </div>
             """, unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
@@ -783,42 +857,45 @@ def main():
         st.markdown('<div class="glass-card">', unsafe_allow_html=True)
         st.markdown("### 🔍 Individual Student Analysis")
         
-        selected_student = st.selectbox("Select Student", df['Name'].tolist())
-        
-        if selected_student:
-            student_data = df[df['Name'] == selected_student].iloc[0]
+        if 'Name' in df.columns and not df.empty:
+            selected_student = st.selectbox("Select Student", df['Name'].tolist())
             
-            col1, col2 = st.columns([1, 1.5])
-            
-            with col1:
-                st.markdown(f"""
-                <div style="padding:20px; background:rgba(99,102,241,0.1); border-radius:15px;">
-                    <h3 style="color:#fbbf24; margin:0;">{student_data['Name']}</h3>
-                    <p style="color:#a5b4fc;">Rank: <span style="color:#fbbf24; font-weight:700;">#{int(student_data['Rank'])}</span></p>
-                    <p style="color:#a5b4fc;">Total: <span style="color:#10b981; font-weight:700;">{int(student_data['Total'])}/{len(subjects)*100}</span></p>
-                    <p style="color:#a5b4fc;">Percentage: <span style="color:#a78bfa; font-weight:700;">{student_data['Percentage']}%</span></p>
-                    <p style="color:#a5b4fc;">Grade: <span style="color:#fbbf24; font-weight:700; font-size:1.2rem;">{student_data['Grade']}</span></p>
-                </div>
-                """, unsafe_allow_html=True)
+            if selected_student:
+                student_data = df[df['Name'] == selected_student].iloc[0]
                 
-                # Subject-wise marks
-                st.markdown("### Subject-wise Marks")
-                for subject in subjects:
-                    marks = int(student_data[subject])
-                    pct = marks
-                    color = '#10b981' if pct >= 75 else '#fbbf24' if pct >= 60 else '#ef4444'
+                col1, col2 = st.columns([1, 1.5])
+                
+                with col1:
                     st.markdown(f"""
-                    <div style="display:flex; justify-content:space-between; align-items:center; 
-                                padding:8px; margin:5px 0; background:rgba(99,102,241,0.05); border-radius:8px;">
-                        <span style="color:#a5b4fc;">{subject}</span>
-                        <span style="color:{color}; font-weight:600;">{marks}</span>
+                    <div style="padding:20px; background:rgba(99,102,241,0.1); border-radius:15px;">
+                        <h3 style="color:#fbbf24; margin:0;">{student_data.get('Name', 'N/A')}</h3>
+                        <p style="color:#a5b4fc;">Rank: <span style="color:#fbbf24; font-weight:700;">#{int(student_data.get('Rank', 0))}</span></p>
+                        <p style="color:#a5b4fc;">Total: <span style="color:#10b981; font-weight:700;">{int(student_data.get('Total', 0))}/{len(subjects)*100 if subjects else 0}</span></p>
+                        <p style="color:#a5b4fc;">Percentage: <span style="color:#a78bfa; font-weight:700;">{student_data.get('Percentage', 0)}%</span></p>
+                        <p style="color:#a5b4fc;">Grade: <span style="color:#fbbf24; font-weight:700; font-size:1.2rem;">{student_data.get('Grade', 'N/A')}</span></p>
                     </div>
                     """, unsafe_allow_html=True)
-            
-            with col2:
-                radar = create_radar_chart(df, subjects, selected_student)
-                if radar:
-                    st.plotly_chart(radar, use_container_width=True)
+                    
+                    # Subject-wise marks
+                    st.markdown("### Subject-wise Marks")
+                    for subject in subjects:
+                        if subject in student_data.index:
+                            marks = int(student_data[subject])
+                            color = '#10b981' if marks >= 75 else '#fbbf24' if marks >= 60 else '#ef4444'
+                            st.markdown(f"""
+                            <div style="display:flex; justify-content:space-between; align-items:center; 
+                                        padding:8px; margin:5px 0; background:rgba(99,102,241,0.05); border-radius:8px;">
+                                <span style="color:#a5b4fc;">{subject}</span>
+                                <span style="color:{color}; font-weight:600;">{marks}</span>
+                            </div>
+                            """, unsafe_allow_html=True)
+                
+                with col2:
+                    radar = create_radar_chart(df, subjects, selected_student)
+                    if radar:
+                        st.plotly_chart(radar, use_container_width=True)
+        else:
+            st.info("No student data available")
         
         st.markdown('</div>', unsafe_allow_html=True)
     
@@ -830,28 +907,31 @@ def main():
         search = st.text_input("🔍 Search student...", placeholder="Type student name...")
         
         display_df = df.copy()
-        if search:
+        if search and 'Name' in display_df.columns:
             display_df = display_df[display_df['Name'].str.contains(search, case=False)]
         
-        # Style the dataframe
-        def highlight_topper(s):
-            return ['background-color: rgba(251,191,36,0.2); color: #fbbf24; font-weight: bold' if s.name == 0 else '' for _ in s]
-        
-        styled_df = display_df.style.apply(highlight_topper, axis=0)
-        
-        st.dataframe(
-            display_df,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                'Name': 'Student Name',
-                'Total': st.column_config.NumberColumn('Total', format="%d"),
-                'Average': st.column_config.NumberColumn('Average', format="%.1f"),
-                'Percentage': st.column_config.NumberColumn('Percentage', format="%.1f%%"),
-                'Grade': 'Grade',
-                'Rank': st.column_config.NumberColumn('Rank', format="#%d")
-            }
-        )
+        if not display_df.empty:
+            # Style the dataframe
+            def highlight_topper(s):
+                return ['background-color: rgba(251,191,36,0.2); color: #fbbf24; font-weight: bold' if s.name == 0 else '' for _ in s]
+            
+            styled_df = display_df.style.apply(highlight_topper, axis=0)
+            
+            st.dataframe(
+                display_df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    'Name': 'Student Name',
+                    'Total': st.column_config.NumberColumn('Total', format="%d"),
+                    'Average': st.column_config.NumberColumn('Average', format="%.1f"),
+                    'Percentage': st.column_config.NumberColumn('Percentage', format="%.1f%%"),
+                    'Grade': 'Grade',
+                    'Rank': st.column_config.NumberColumn('Rank', format="#%d")
+                }
+            )
+        else:
+            st.info("No data to display")
         st.markdown('</div>', unsafe_allow_html=True)
     
     # Footer
